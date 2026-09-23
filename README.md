@@ -35,7 +35,7 @@ A professional Python tool that generates beautiful, GitHub-style contribution g
      ```
 
 
-## 💻 Usage Guide: Single Project Analyzer (`main` branch)
+## 💻 Usage Guide 1: Single Project Analyzer (`main` branch)
 
 Use this to generate a deep-dive contribution dashboard for **one specific Git repository**.
 
