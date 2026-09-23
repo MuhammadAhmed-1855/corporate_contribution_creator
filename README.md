@@ -54,7 +54,7 @@ python main.py --repo "/path/to/your/project" --name "My Project Name" --author 
 
 **Advanced Usage (Multiple Aliases & Custom Output):**
 ```bash
-python github.py \
+python main.py \
   --repo "/path/to/your/project" \
   --name "My Project Name" \
   --author "Name 1, Name 2" \
@@ -117,7 +117,7 @@ python portfolio_aggregator.py \
 
 ## 💡 Pro-Tips for Best Results
 
-1. **Finding your aliases:** If your commit count looks too low, run `python github.py --repo "path" --list-authors` to see exactly how your name was spelled in the Git history, then copy-paste those exact strings into the `--author` flag.
+1. **Finding your aliases:** If your commit count looks too low, run `python main.py --repo "path" --list-authors` to see exactly how your name was spelled in the Git history, then copy-paste those exact strings into the `--author` flag.
 2. **Dynamic Output:** You don't have to use the default output folder. Pass `--output-dir "/path/to/your/output"` to save the generated files anywhere you want!
 3. **Monorepos:** If a single repository contains multiple distinct projects, use the **Single Project Analyzer** but point it to the specific subdirectory (e.g., `--repo "/path/to/your/project"`).
 
