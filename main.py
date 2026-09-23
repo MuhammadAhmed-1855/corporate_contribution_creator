@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Git Contribution README Generator (NDA-Safe, Raw Metadata)
-Generates comprehensive README files in a central output directory.
+Generates comprehensive README files with year-wise visual heatmaps.
 """
 
 import subprocess
@@ -12,19 +12,24 @@ from collections import defaultdict, Counter
 import argparse
 import sys
 
+# Import matplotlib for the heatmap
+import matplotlib
+matplotlib.use('Agg') # Prevent GUI popups on Windows
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import numpy as np
+
 
 class GitMetricsExtractor:
     """Phase 1: Extract and calculate all raw metrics from Git."""
 
     def __init__(self, repo_path=".", author_filters=None):
         self.repo_path = repo_path
-        # Normalize filters to lowercase for case-insensitive matching
         self.author_filters = [f.strip().lower() for f in author_filters] if author_filters else []
         self.commits = []
         self.file_stats = []
 
     def _run_git(self, args):
-        """Execute git command safely."""
         try:
             result = subprocess.run(
                 ["git"] + args,
@@ -39,7 +44,6 @@ class GitMetricsExtractor:
             sys.exit(1)
 
     def list_all_authors(self):
-        """List all unique authors with commit counts."""
         print("🔍 Scanning repository for all authors...\n")
         log_format = "--pretty=format:%an|%ae"
         output = self._run_git(["log", log_format, "--no-merges"])
@@ -54,46 +58,57 @@ class GitMetricsExtractor:
             print("⚠️ No commits found in this repository.")
             return
         
-        print(f"📊 Found {len(author_counts)} unique author(s):\n")
+        print(f" Found {len(author_counts)} unique author(s):\n")
         print(f"{'Author':<55} {'Commits':<10}")
         print("-" * 65)
-        
         for author, count in author_counts.most_common():
             print(f"{author:<55} {count:<10}")
-        
         print(f"\n💡 Tip: Use --author with a comma-separated list of your aliases.")
-        print(f"   Example: --author \"MuhammadAhmed_Dev, Muhammad Ahmed, hussain\"")
 
     def extract_all_data(self):
-        """Main extraction pipeline."""
         print("🔍 Extracting raw commit metadata...")
         self._extract_commits_and_numstat()
 
         print("🧮 Calculating advanced metrics...")
-        metrics = {
+        return {
             "summary": self._calc_summary(),
             "timeline": self._calc_timeline(),
             "streaks": self._calc_streaks(),
             "time_analysis": self._calc_time_analysis(),
             "languages": self._calc_languages(),
             "top_files": self._calc_top_files(),
-            "raw_commits": self.commits
+            "raw_commits": self.commits,
+            "date_range": self._calc_date_range()
         }
-        return metrics
+
+    def _calc_date_range(self):
+        """Calculate the overall date range of commits."""
+        if not self.commits:
+            return {"first": None, "last": None, "total_days": 0, "years": []}
+        
+        dates = [datetime.strptime(c["date"].split()[0], "%Y-%m-%d") for c in self.commits]
+        first_date = min(dates)
+        last_date = max(dates)
+        total_days = (last_date - first_date).days + 1
+        
+        # Extract all unique years involved
+        years = list(range(first_date.year, last_date.year + 1))
+        
+        return {
+            "first": first_date,
+            "last": last_date,
+            "total_days": total_days,
+            "years": years
+        }
 
     def _is_my_commit(self, author_name, author_email):
-        """Check if the commit belongs to any of the specified author filters."""
         if not self.author_filters:
-            return True  # No filter = include everyone
-        
+            return True
         name_lower = author_name.lower()
         email_lower = author_email.lower()
-        
-        # Match if ANY filter is a substring of the name or email
         return any(f in name_lower or f in email_lower for f in self.author_filters)
 
     def _extract_commits_and_numstat(self):
-        """Extract commit info and file changes in a single pass."""
         log_format = "--pretty=format:COMMIT_START|%H|%ai|%an|%ae|%s"
         output = self._run_git(["log", log_format, "--numstat", "--no-merges"])
 
@@ -128,20 +143,9 @@ class GitMetricsExtractor:
 
                     current_commit["insertions"] += adds
                     current_commit["deletions"] += dels
-                    current_commit["files"].append({
-                        "path": filepath,
-                        "adds": adds,
-                        "dels": dels
-                    })
+                    current_commit["files"].append({"path": filepath, "adds": adds, "dels": dels})
+                    self.file_stats.append({"path": filepath, "adds": adds, "dels": dels, "date": current_commit["date"]})
 
-                    self.file_stats.append({
-                        "path": filepath,
-                        "adds": adds,
-                        "dels": dels,
-                        "date": current_commit["date"]
-                    })
-
-        # Don't forget the last commit!
         if current_commit and self._is_my_commit(current_commit["author"], current_commit["email"]):
             self.commits.append(current_commit)
 
@@ -150,8 +154,6 @@ class GitMetricsExtractor:
         total_adds = sum(c["insertions"] for c in self.commits)
         total_dels = sum(c["deletions"] for c in self.commits)
         total_files_touched = len(set(f["path"] for f in self.file_stats))
-
-        # Even though we filtered, we show the original aliases in the summary for transparency
         authors = Counter(c["author"] for c in self.commits)
 
         return {
@@ -173,31 +175,25 @@ class GitMetricsExtractor:
     def _calc_streaks(self):
         if not self.commits:
             return {"current": 0, "longest": 0}
-
         dates = sorted(list(set(c["date"].split()[0] for c in self.commits)))
         dates_dt = [datetime.strptime(d, "%Y-%m-%d") for d in dates]
-
         longest = 1
         current = 1
-
         for i in range(1, len(dates_dt)):
             if (dates_dt[i] - dates_dt[i-1]).days == 1:
                 current += 1
                 longest = max(longest, current)
             else:
                 current = 1
-
         today = datetime.now().date()
         last_commit_date = dates_dt[-1].date()
         if (today - last_commit_date).days > 1:
             current = 0
-
         return {"current": current, "longest": longest}
 
     def _calc_time_analysis(self):
         day_counts = Counter()
         hour_counts = Counter()
-
         for c in self.commits:
             date_str = c["date"]
             try:
@@ -206,18 +202,13 @@ class GitMetricsExtractor:
                 dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
             day_counts[dt.strftime("%A")] += 1
             hour_counts[dt.hour] += 1
-
-        return {
-            "days_of_week": dict(day_counts),
-            "hours_of_day": dict(hour_counts)
-        }
+        return {"days_of_week": dict(day_counts), "hours_of_day": dict(hour_counts)}
 
     def _calc_languages(self):
         ext_counts = Counter()
         for f in self.file_stats:
             ext = os.path.splitext(f["path"])[1].lower()
-            if ext:
-                ext_counts[ext] += 1
+            if ext: ext_counts[ext] += 1
         return dict(ext_counts.most_common(10))
 
     def _calc_top_files(self):
@@ -228,35 +219,43 @@ class GitMetricsExtractor:
 class MarkdownRenderer:
     """Phase 2: Render the extracted metrics into a beautiful README.md."""
 
-    def __init__(self, metrics, repo_name="Project", primary_name=None):
+    def __init__(self, metrics, repo_name="Project", primary_name=None, output_dir="."):
         self.metrics = metrics
         self.repo_name = repo_name
         self.primary_name = primary_name
+        self.output_dir = output_dir
 
     def render(self):
         md = []
         md.append(self._render_header())
         md.append(self._render_summary_table())
-        md.append(self._render_heatmap())
+        md.append(self._render_yearly_heatmaps()) # Year-wise graphs
         md.append(self._render_time_analysis())
         md.append(self._render_languages_and_files())
         md.append(self._render_recent_commits())
         md.append(self._render_footer())
-
         return "\n\n".join(md)
 
     def _render_header(self):
+        date_range = self.metrics["date_range"]
         author_info = f" | Author: `{self.primary_name}` (Aggregated aliases)" if self.primary_name else ""
+        
+        date_info = ""
+        if date_range["first"] and date_range["last"]:
+            first_str = date_range["first"].strftime("%Y-%m-%d")
+            last_str = date_range["last"].strftime("%Y-%m-%d")
+            total_days = date_range["total_days"]
+            date_info = f" | Period: {first_str} to {last_str} ({total_days} days)"
+        
         return (
-            f"# 📊 {self.repo_name} - Contribution Metrics\n\n"
+            f"#  {self.repo_name} - Contribution Metrics\n\n"
             f"*Auto-generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
-            f"Raw metadata, zero code diffs.{author_info}*"
+            f"Raw metadata, zero code diffs.{author_info}{date_info}*"
         )
 
     def _render_summary_table(self):
         s = self.metrics["summary"]
         streaks = self.metrics["streaks"]
-
         return (
             "## 📈 Summary Statistics\n\n"
             "| Metric | Value | Metric | Value |\n"
@@ -267,36 +266,91 @@ class MarkdownRenderer:
             f"| **Current Streak** | `{streaks['current']} days` | **Unique Aliases Used** | `{len(s['authors'])}` |"
         )
 
-    def _render_heatmap(self):
-        timeline = self.metrics["timeline"]
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=364)
+    def _create_single_heatmap(self, timeline, start_date, weeks, year_label):
+        """Create a single 52-week heatmap graph for a specific year."""
+        # Align start date to Monday (like GitHub)
         days_to_monday = start_date.weekday()
         grid_start = start_date - timedelta(days=days_to_monday)
-
-        grid = [["░" for _ in range(53)] for _ in range(7)]
-        current = grid_start
         
-        for week in range(53):
+        # Build data matrix (7 rows x weeks columns)
+        data = np.zeros((7, weeks))
+        
+        current = grid_start
+        for week in range(weeks):
             for day in range(7):
                 date_str = current.strftime("%Y-%m-%d")
-                count = timeline.get(date_str, 0)
-
-                if count == 0: block = "░"
-                elif count == 1: block = "▒"
-                elif count <= 3: block = "▓"
-                else: block = "█"
-
-                grid[day][week] = block
+                data[day, week] = timeline.get(date_str, 0)
                 current += timedelta(days=1)
 
-        days_label = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        heatmap_text = "```\n"
-        for i, row in enumerate(grid):
-            heatmap_text += f"{days_label[i]} {''.join(row)}\n"
-        heatmap_text += "```\n*Legend: `░` 0 | `▒` 1 | `▓` 2-3 | `█` 4+*"
+        # Generate the plot
+        fig, ax = plt.subplots(figsize=(15, 3))
+        
+        # GitHub-like green colormap
+        colors = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
+        cmap = mcolors.ListedColormap(colors)
+        
+        # Custom normalization: 0, 1, 2, 3, 4+
+        bounds = [0, 1, 2, 3, 4, 5]
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
+        
+        ax.pcolormesh(data, cmap=cmap, norm=norm, edgecolors='#0d1117', linewidth=0.5)
+        
+        ax.set_yticks([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
+        ax.set_yticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], fontsize=8, color='#8b949e')
+        ax.set_xticks([])
+        
+        # Style the plot
+        ax.set_facecolor('#0d1117')
+        fig.patch.set_facecolor('#0d1117')
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        
+        # Add title with the year
+        ax.set_title(f"Contribution Activity - {year_label}", fontsize=12, color='#c9d1d9', pad=10, fontweight='bold')
+        
+        # Save the image
+        image_filename = f"{re.sub(r'[^\w\-_.]', '_', self.repo_name)}_{year_label}.png"
+        image_path = os.path.join(self.output_dir, image_filename)
+        plt.savefig(image_path, dpi=150, bbox_inches='tight', facecolor='#0d1117')
+        plt.close()
+        
+        return image_filename
 
-        return f"## 🟩 Contribution Heatmap (Last 52 Weeks)\n\n{heatmap_text}"
+    def _render_yearly_heatmaps(self):
+        """Generate year-wise 52-week contribution graphs."""
+        timeline = self.metrics["timeline"]
+        date_range = self.metrics["date_range"]
+        
+        if not date_range["first"] or not date_range["last"]:
+            return "## 🟩 Contribution Graphs\n\n*No commit data available.*"
+        
+        years = date_range["years"]
+        image_filenames = []
+        
+        # Create a graph for each year
+        for year in years:
+            start_date = datetime(year, 1, 1)
+            weeks = 52 # Exactly 52 weeks per graph as requested
+            
+            # Create the graph
+            image_filename = self._create_single_heatmap(
+                timeline, 
+                start_date, 
+                weeks, 
+                str(year)
+            )
+            image_filenames.append((image_filename, year))
+        
+        print(f"️ Generated {len(image_filenames)} yearly contribution graph(s)")
+        
+        # Build markdown output
+        md_parts = ["## 🟩 Contribution Graphs\n"]
+        
+        for filename, year in image_filenames:
+            md_parts.append(f"### {year}\n")
+            md_parts.append(f"![Contribution Graph {year}]({filename})\n")
+        
+        return "\n".join(md_parts)
 
     def _render_time_analysis(self):
         time_data = self.metrics["time_analysis"]
@@ -315,9 +369,8 @@ class MarkdownRenderer:
             hour_chart.append(f"`{h:02d}:00` {bar} ({count})")
 
         chart_text = "\n".join(hour_chart)
-
         return (
-            "## 🕒 Time Analysis\n\n"
+            "##  Time Analysis\n\n"
             f"**Peak Productivity:** {peak_day}s at `{peak_hour:02d}:00`\n\n"
             "<details>\n"
             "<summary><b>Click to expand 24-Hour Commit Distribution</b></summary>\n\n"
@@ -330,10 +383,8 @@ class MarkdownRenderer:
     def _render_languages_and_files(self):
         langs = self.metrics["languages"]
         top_files = self.metrics["top_files"]
-
         lang_rows = "\n".join([f"| `{ext}` | {count} |" for ext, count in langs.items()]) if langs else "| *No files detected* | - |"
         file_rows = "\n".join([f"| `{path}` | {count} |" for path, count in top_files.items()]) if top_files else "| *No files detected* | - |"
-
         return (
             "## 🛠️ Languages & Hotspots\n\n"
             "### Inferred Languages (by file extension)\n"
@@ -350,13 +401,11 @@ class MarkdownRenderer:
         commits = self.metrics["raw_commits"][:20]
         if not commits:
             return "## 📝 Recent Commits\n\n*No commits found.*"
-
         rows = []
         for c in commits:
             date_short = c["date"].split()[0]
             msg = c["message"].replace("|", "\\|")
             rows.append(f"| `{c['hash']}` | {date_short} | {msg} | +{c['insertions']} / -{c['deletions']} |")
-
         return (
             "## 📝 Recent Commits (Raw Metadata)\n\n"
             "| Hash | Date | Message (Unsanitized) | LOC Changes |\n"
@@ -373,26 +422,19 @@ class MarkdownRenderer:
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Generate comprehensive NDA-safe README files in a central directory."
-    )
-    parser.add_argument("--repo", required=True, help="Path to the git repository to analyze")
-    parser.add_argument("--output-dir", default="D:\\Personal\\corporate_history", 
-                       help="Directory to save README files")
-    parser.add_argument("--name", default=None, help="Project name (used as filename)")
-    parser.add_argument("--author", default=None, 
-                       help="Comma-separated list of author names/emails to include (e.g., 'MuhammadAhmed_Dev, Muhammad Ahmed, hussain')")
-    parser.add_argument("--primary-name", default=None, 
-                       help="The clean name to display in the README header (e.g., 'Muhammad Ahmed')")
-    parser.add_argument("--list-authors", action="store_true", help="List all authors in the repository and exit")
+    parser = argparse.ArgumentParser(description="Generate comprehensive NDA-safe README files.")
+    parser.add_argument("--repo", required=True, help="Path to the git repository")
+    parser.add_argument("--output-dir", default="D:\\Personal\\corporate_history", help="Directory to save files")
+    parser.add_argument("--name", default=None, help="Project name")
+    parser.add_argument("--author", default=None, help="Comma-separated list of author names/emails")
+    parser.add_argument("--primary-name", default=None, help="Clean name for the header")
+    parser.add_argument("--list-authors", action="store_true", help="List all authors and exit")
     parser.add_argument("--output", default="README.md", help="Output filename")
 
     args = parser.parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Parse comma-separated authors into a list
     author_filters = [a.strip() for a in args.author.split(',')] if args.author else None
-
     extractor = GitMetricsExtractor(repo_path=args.repo, author_filters=author_filters)
     
     if args.list_authors:
@@ -400,18 +442,16 @@ def main():
         sys.exit(0)
     
     if not args.name:
-        print("❌ Error: --name is required when generating README")
+        print("❌ Error: --name is required")
         sys.exit(1)
     
     metrics = extractor.extract_all_data()
 
     if metrics["summary"]["total_commits"] == 0:
         print("⚠️ No commits found matching your author filters.")
-        print(f"   Filters used: {args.author}")
-        print(f"\n💡 Run with --list-authors to see exact spelling of all authors.")
         sys.exit(0)
 
-    renderer = MarkdownRenderer(metrics, repo_name=args.name, primary_name=args.primary_name)
+    renderer = MarkdownRenderer(metrics, repo_name=args.name, primary_name=args.primary_name, output_dir=args.output_dir)
     markdown_content = renderer.render()
 
     safe_filename = re.sub(r'[^\w\-_.]', '_', args.name)
@@ -423,6 +463,11 @@ def main():
     print(f"✅ Successfully generated {output_path}")
     if args.primary_name:
         print(f"👤 Aggregated under primary name: {args.primary_name}")
+    
+    date_range = metrics["date_range"]
+    if date_range["first"] and date_range["last"]:
+        print(f"📅 Period: {date_range['first'].strftime('%Y-%m-%d')} to {date_range['last'].strftime('%Y-%m-%d')} ({date_range['total_days']} days)")
+    
     print(f"📊 Stats: {metrics['summary']['total_commits']} commits, +{metrics['summary']['total_insertions']}/-{metrics['summary']['total_deletions']} lines.")
 
 
