@@ -1,16 +1,19 @@
 # 📊 Corporate Contribution Creator (NDA-Safe)
 
-A professional Python tool that generates beautiful, GitHub-style contribution graphs and comprehensive metric dashboards from your Git history—**without exposing any source code**. Perfect for building NDA-compliant engineering portfolios.
+A professional Python tool that generates hierarchical, GitHub-style contribution graphs and comprehensive metric dashboards from your Git history—**without exposing any source code**. 
+
+Perfect for building NDA-compliant **Engineering Impact** case studies for your personal portfolio.
 
 ## ✨ Features
 
+- 🏗️ **Hierarchical Drill-Down:** Generates a Master Company Dashboard that links to individual Project Summaries, which in turn link to Full Commit Histories.
+- 🔗 **Bi-Directional Navigation:** Automatically generates professional Call-To-Action (CTA) badges to navigate seamlessly between Company, Project, and Commit levels.
 - 🟩 **Yearly Contribution Heatmaps:** Generates real PNG images mimicking GitHub's dark-mode contribution graph, split by calendar year.
 - 🔒 **NDA-Safe:** Extracts *only* metadata (commit counts, dates, file paths, package names). Zero code diffs or source code are ever read or included.
 - 👤 **Author Alias Aggregation:** Combine commits from multiple emails/names (e.g., personal vs. work email) into one unified, accurate profile.
-- 📦 **Smart Package Detection:** Automatically parses `package.json` and `requirements.txt` to list the actual core tech stack used in the project.
-- 🔗 **Dual-View Navigation:** Generates a main dashboard `README.md` and a separate, linked `full_commit_history.md` file for deep dives.
+- 📦 **Smart Tech Stack Detection:** Automatically parses `package.json` and `requirements.txt` to list the actual core tech stack used in the project.
+- 🔄 **Automated Remote Sync:** Automatically runs `git fetch --all` to ensure UI merges (GitLab/GitHub PRs) are captured, with graceful fallback if offline.
 - 📂 **Dynamic Output:** Fully customizable save locations. You are never forced to use a hardcoded directory.
-
 
 
 ## 🚀 Installation
@@ -25,106 +28,96 @@ A professional Python tool that generates beautiful, GitHub-style contribution g
    ```bash
    pip install -r requirements.txt
    ```
-   *(Requires `matplotlib` and `numpy`)*
-
-3. **Choose your branch:**
-   - For a **single project**, stay on the `main` branch (or `feature/repositoryContributor`).
-   - For a **company-wide portfolio**, switch to the `feature/companyContributor` branch:
-     ```bash
-     git checkout feature/companyContributor
-     ```
+   *(Requires `matplotlib>=3.8.0` and `numpy>=1.24.0`)*
 
 
-## 💻 Usage Guide 1: Single Project Analyzer (`main` branch)
+## 💻 Usage: The Unified Hierarchical Generator
 
-Use this to generate a deep-dive contribution dashboard for **one specific Git repository**.
+The tool uses a single, powerful script (`hierarchical_generator.py`) on the `main` branch to generate the entire nested ecosystem of files in one run. You no longer need to switch branches or run multiple scripts.
 
-###  Output Files Generated
-1. `[ProjectName]_README.md`: The main dashboard with stats, graphs, and packages.
-2. `full_commit_history.md`: A detailed log of every single commit (linked via a button in the main README).
-3. `[ProjectName]_2024.png`, `[ProjectName]_2025.png`, etc.: The visual contribution graph images.
+### 📂 Output Files Generated
+When you point the script at a company folder, it generates:
+1. **`[Company]_Master_README.md`**: The high-level company dashboard with aggregated stats and graphs.
+2. **`[Project]_README.md`**: Individual dashboards for each repository found, containing specific stats, tech stacks, and graphs.
+3. **`full_commit_history_[Project].md`**: A detailed log of every single commit for each project.
+4. **`*.png`**: The visual contribution graph images for both the company and individual projects.
 
 ### 🏃‍♂️ How to Run
 
-**Basic Usage:**
+**Standard Usage:**
 ```bash
-python main.py --repo "/path/to/your/project" --name "My Project Name" --author "Your Name" --primary-name "Your Display Name"
+python main.py \
+  --parent-dir "/path/to/your/company" \
+  --name "Company Name" \
+  --author "Name 1, Name 2" \
+  --primary-name "Muhammad Ahmed" \
+  --back-to "https://github.com/your-username"
 ```
 *(Note: On Windows, you can use `py` instead of `python`)*
 
-**Advanced Usage (Multiple Aliases & Custom Output):**
+**Advanced Usage (Custom Output & Offline Mode):**
 ```bash
 python main.py \
-  --repo "/path/to/your/project" \
-  --name "My Project Name" \
-  --author "Name 1, Name 2" \
-  --primary-name "Your Display Name" \
-  --output-dir "/path/to/your/output"
-```
-
-### ⚙️ Command Line Arguments
-
-| Argument | Required? | Description |
-| :--- | :---: | :--- |
-| `--repo` | ✅ Yes | The exact path to the Git repository you want to analyze. |
-| `--name` | ✅ Yes | The display name for the project (used in the header and filenames). |
-| `--author` | ❌ No | Comma-separated list of your Git names/emails. If omitted, it counts *everyone*. |
-| `--primary-name` | ❌ No | The clean name to display in the README header (e.g., "Muhammad Ahmed"). |
-| `--output-dir` | ❌ No | **Dynamic!** Where to save the files. Defaults to `D:\Personal\corporate_history`, but can be set to any folder (e.g., `--output-dir "C:\MyPortfolio"`). |
-| `--list-authors` | ❌ No | Scans the repo and prints all unique authors. Great for finding your exact Git aliases if your commit count looks too low. |
-
-## 💻 Usage Guide 2: Company-Wide Aggregator (`feature/companyContributor` branch)
-
-Use this to recursively scan a parent folder containing **multiple Git repositories**, aggregate your personal stats across all of them, and generate one master "Company Portfolio" dashboard.
-
-###  Output Files Generated
-1. `[CompanyName]_Master_README.md`: The high-level company dashboard.
-2. `[CompanyName]_Aggregated_2024.png`, etc.: Combined contribution graphs summing up your work across all projects for that specific year.
-
-### ‍♂️ How to Run
-
-**Basic Usage:**
-```bash
-python portfolio_aggregator.py --parent-dir "/path/to/company-folder" --name "Company Name" --author "Your Name" --primary-name "Your Display Name"
-```
-
-**Advanced Usage (Custom Output Directory):**
-```bash
-python portfolio_aggregator.py \
-  --parent-dir "/path/to/company-folder" \
+  --parent-dir "/path/to/your/company" \
   --name "Company Name" \
-  --author "Name 1, Name 2" \
+  --author "Your Name, your.email@domain.com" \
   --primary-name "Your Display Name" \
-  --output-dir "/path/to/your/output"
+  --output-dir "/path/to/your/output" \
+  --skip-fetch
 ```
 
 ### ⚙️ Command Line Arguments
 
 | Argument | Required? | Description |
 | :--- | :---: | :--- |
-| `--parent-dir` | ✅ Yes | The top-level folder to recursively scan for Git repositories. |
-| `--name` | ✅ Yes | The Company or Portfolio name (used in the header and filenames). |
+| `--parent-dir` | ✅ Yes* | The top-level folder to recursively scan for Git repositories (Used in Hierarchical mode). |
+| `--repo` | ✅ Yes* | The exact path to a single Git repository (Used in legacy Single-Project mode). |
+| `--name` | ✅ Yes | The Company or Project name (used in the header and output filenames). |
 | `--author` | ✅ Yes | Comma-separated list of your Git names/emails to filter and aggregate your commits. |
-| `--primary-name` | ✅ Yes | The clean name to display in the README header. |
-| `--output-dir` | ❌ No | **Dynamic!** Where to save the files. Defaults to `/path/to/your/output`, but can be set to any folder. |
+| `--primary-name` | ✅ Yes | Your clean, professional display name for the README headers. |
+| `--output-dir` | ❌ No | **Dynamic!** Where to save the generated files. Defaults to `D:\Personal\corporate_history`, but can be set to any folder (e.g., `--output-dir "C:\MyPortfolio"`). |
+| `--back-to` | ❌ No | **Highly Recommended.** The URL to link back to from the Company Master README (e.g., your main GitHub profile or personal portfolio site). |
+| `--skip-fetch` | ❌ No | Skips the automatic `git fetch --all` (useful if intentionally working offline or on a slow connection). |
+| `--list-authors` | ❌ No | *(Single-Project mode only)* Scans the repo and prints all unique authors with commit counts. Great for finding your exact Git aliases if your count looks too low. |
 
-### 🧠 How the Aggregator Works
+*\*Note: Use `--parent-dir` for the unified hierarchical generator, or `--repo` if you are running the standalone single-project script.*
+
+
+## 🗺️ The Navigation Flow
+
+The generated files create a seamless, bi-directional navigation experience for anyone reviewing your portfolio:
+
+1. **Master Dashboard** (`[Company]_Master_README.md`): 
+   - Shows company-wide aggregated stats and graphs. 
+   - Contains a `👤 Back to Main Portfolio` button (if `--back-to` is used). 
+   - Contains a table of projects with `📄 View Summary` links.
+2. **Project Summary** (`[Project]_README.md`): 
+   - Shows specific stats, tech stack, and graphs for one repo. 
+   - Contains `🏢 Back to Company Overview` and `📜 View Full Commit Log` buttons.
+3. **Full History** (`full_commit_history_[Project].md`): 
+   - A detailed, scrollable log of every single commit. 
+   - Contains an `⬅️ Back to Project Summary` button to return to the dashboard.
+
+
+## 🧠 How the Aggregator Works Under the Hood
+
 1. It recursively walks through the `--parent-dir` looking for `.git` folders.
-2. It extracts **only your commits** from each repository based on the `--author` filter.
-3. It merges the daily commit counts to create a single, accurate "Company-Wide" contribution graph per year.
-4. It generates a clean table breaking down your contribution per project, including a concise "Primary Tech Stack" summary for each specific project (avoiding messy, global dependency lists).
+2. It automatically runs `git fetch --all` to ensure remote UI merges (like GitLab/GitHub PRs) are captured locally.
+3. It extracts **only your commits** from each repository based on the `--author` filter (scanning all branches with `--all`).
+4. It merges the daily commit counts to create a single, accurate "Company-Wide" contribution graph per year.
+5. It generates a clean table breaking down your contribution per project, including a concise "Primary Tech Stack" summary for each specific project (avoiding messy, global dependency lists).
 
 
 ## 💡 Pro-Tips for Best Results
 
-1. **Finding your aliases:** If your commit count looks too low, run `python main.py --repo "path" --list-authors` to see exactly how your name was spelled in the Git history, then copy-paste those exact strings into the `--author` flag.
-2. **Dynamic Output:** You don't have to use the default output folder. Pass `--output-dir "/path/to/your/output"` to save the generated files anywhere you want!
-3. **Monorepos:** If a single repository contains multiple distinct projects, use the **Single Project Analyzer** but point it to the specific subdirectory (e.g., `--repo "/path/to/your/project"`).
+1. **Finding your aliases:** If your commit count looks too low, you can temporarily run `python hierarchical_generator.py --parent-dir "path" --name "Test" --author "Test" --primary-name "Test" --list-authors` (if using the legacy single-repo mode) or simply check `git log --pretty=format:"%an <%ae>" | sort | uniq -c | sort -nr` to see exactly how your name was spelled in the Git history. Copy-paste those exact strings into the `--author` flag.
+2. **Dynamic Output:** You don't have to use the default output folder. Pass `--output-dir "C:\Users\Shiroe\Desktop\Portfolio"` to save the generated files anywhere you want!
+3. **Monorepos:** If a single repository contains multiple distinct projects, point `--parent-dir` to the specific subdirectory containing the `.git` folder to generate a dedicated impact report for that monorepo.
 
 
-## ️ NDA Compliance Guarantee
+## 🛡️ NDA Compliance Guarantee
 
-This tool strictly uses `git log --numstat` and basic file system parsing for config files. It **never** runs `git show`, `git diff`, or reads the actual contents of your source code files. The generated output is 100% safe to share publicly on GitHub or in job applications.
+This tool strictly uses `git log --numstat` and basic file system parsing for config files (`package.json`, `requirements.txt`). It **never** runs `git show`, `git diff`, or reads the actual contents of your source code files. The generated output is 100% safe to share publicly on GitHub, LinkedIn, or in job applications.
 
 ---
 
