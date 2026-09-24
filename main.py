@@ -3,7 +3,7 @@
 Hierarchical Portfolio Generator: 
 Generates a Master Company Dashboard that links to individual Repo Dashboards, 
 which in turn link to individual Full Commit Histories.
-Features bi-directional navigation and customizable CTAs.
+Features bi-directional navigation, customizable CTAs, and nested folder structure.
 """
 
 import subprocess
@@ -159,70 +159,75 @@ def create_heatmap(timeline, start_date, weeks, output_dir, filename, title):
     return filename
 
 
-def generate_individual_repo_readme(repo_name, metrics, output_dir, company_master_filename):
-    """Generates the detailed README and Full History for a SINGLE repo."""
+def generate_individual_repo_readme(repo_name, metrics, company_output_dir, company_master_filename):
+    """Generates the detailed README and Full History for a SINGLE repo inside its own subfolder."""
     safe_name = re.sub(r'[^\w\-_.]', '_', repo_name)
     
-    # 1. Generate Heatmaps
+    # Create a dedicated subfolder for this project
+    project_output_dir = os.path.join(company_output_dir, safe_name)
+    os.makedirs(project_output_dir, exist_ok=True)
+
+    # 1. Generate Heatmaps (inside project folder)
     years = list(range(metrics["first_date"].year, metrics["last_date"].year + 1))
     heatmap_files = []
     for year in years:
         img_name = f"{safe_name}_{year}.png"
-        create_heatmap(metrics["timeline"], datetime(year, 1, 1), 52, output_dir, img_name, f"Contribution Activity - {year}")
+        create_heatmap(metrics["timeline"], datetime(year, 1, 1), 52, project_output_dir, img_name, f"Contribution Activity - {year}")
         heatmap_files.append((img_name, year))
 
-    # 2. Generate Full Commit History
-    history_filename = f"full_commit_history_{safe_name}.md"
-    history_path = os.path.join(output_dir, history_filename)
+    # 2. Generate Full Commit History (inside project folder)
+    history_filename = "full_commit_history.md"
+    history_path = os.path.join(project_output_dir, history_filename)
     rows = [f"| `{c['hash']}` | {c['date'].split()[0]} | {c['message'].replace('|', '\\|')} | +{c['insertions']} / -{c['deletions']} |" for c in metrics["raw_commits"]]
     
-    # CTA: Back to Project Summary
-    back_to_summary = f"[![⬅️ Back to Project Summary](https://img.shields.io/badge/️_Back_to_Project_Summary-007bff?style=for-the-badge)]({safe_name}_README.md)"
+    # CTA: Back to Project Summary (same folder)
+    back_to_summary = f"[![⬅️ Back to Project Summary](https://img.shields.io/badge/⬅️_Back_to_Project_Summary-007bff?style=for-the-badge)](README.md)"
     
     with open(history_path, "w", encoding="utf-8") as f:
         f.write(f"# 📜 Full Commit History: {repo_name}\n\n{back_to_summary}\n\n*Total Commits: {len(metrics['raw_commits'])}*\n\n")
         f.write("| Hash | Date | Message | LOC Changes |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(rows))
         f.write("\n\n---\n*Raw metadata only. Zero source code included.*")
 
-    # 3. Generate Individual README
-    readme_path = os.path.join(output_dir, f"{safe_name}_README.md")
+    # 3. Generate Individual README (inside project folder)
+    readme_path = os.path.join(project_output_dir, "README.md")
     
-    # CTA: View Full Commit Log (Down) & Back to Company Overview (Up)
+    # CTA: View Full Commit Log (same folder) & Back to Company Overview (up one level)
     history_link = f"[![📜 View Full Commit Log](https://img.shields.io/badge/_View_Full_Commit_Log-2ea44f?style=for-the-badge)]({history_filename})"
-    back_to_company = f"[![ Back to Company Overview](https://img.shields.io/badge/_Back_to_Company_Overview-6e7681?style=for-the-badge)]({company_master_filename})"
+    back_to_company = f"[![ Back to Company Overview](https://img.shields.io/badge/🏢_Back_to_Company_Overview-6e7681?style=for-the-badge)](../{company_master_filename})"
     
     pkg_list = "\n".join([f"- `{p}`" for p in metrics["packages"]]) if metrics["packages"] else "*No major dependencies found.*"
     
     with open(readme_path, "w", encoding="utf-8") as f:
-        f.write(f"#  {repo_name} - Contribution Metrics\n\n")
+        f.write(f"# 📊 {repo_name} - Engineering Impact\n\n")
         f.write(f"{history_link} &nbsp; {back_to_company}\n\n") # Bi-directional navigation
         f.write(f"*Auto-generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Raw metadata, zero code diffs.*\n\n")
-        f.write("##  Summary Statistics\n\n| Metric | Value | Metric | Value |\n| :--- | :--- | :--- | :--- |\n")
+        f.write("## 📈 Summary Statistics\n\n| Metric | Value | Metric | Value |\n| :--- | :--- | :--- | :--- |\n")
         f.write(f"| **Total Commits** | `{metrics['total_commits']}` | **Net Lines** | `{metrics['net_lines']}` |\n")
         f.write(f"| **Lines Added** | `+{metrics['total_insertions']}` | **Files Touched** | `{metrics['total_files_touched']}` |\n") 
         f.write(f"| **Lines Removed** | `-{metrics['total_deletions']}` | **Longest Streak** | `N/A` |\n") 
         f.write(f"| **Merges / Reviews** | `{metrics['merges']}` 🤝 | | |\n\n")
         
-        f.write("##  Contribution Graphs\n\n")
+        f.write("## 🟩 Contribution Graphs\n\n")
         for img, year in heatmap_files: f.write(f"### {year}\n![Graph {year}]({img})\n\n")
         
-        f.write("##  Core Packages & Dependencies\n\n" + pkg_list + "\n\n")
+        f.write("## 📦 Core Packages & Dependencies\n\n" + pkg_list + "\n\n")
         f.write("---\n*Raw metadata only. **Zero source code included for NDA compliance.***")
     
-    return f"{safe_name}_README.md"
+    # Return the relative path from the company root to this project's README
+    return f"{safe_name}/README.md"
 
 
 def generate_master_company_readme(company_name, projects, output_dir, primary_name, global_first, global_last, back_to_url=None):
     """Generates the Master Dashboard linking to all individual repos."""
     safe_name = re.sub(r'[^\w\-_.]', '_', company_name)
-    company_master_filename = f"{safe_name}_Master_README.md"
+    company_master_filename = "README.md"
     
     # Aggregate timelines for the master graph
     combined_timeline = Counter()
     for p in projects:
         combined_timeline.update(p["metrics"]["timeline"])
 
-    # 1. Generate Aggregated Heatmaps
+    # 1. Generate Aggregated Heatmaps (in the root company folder)
     years = list(range(global_first.year, global_last.year + 1))
     heatmap_files = []
     for year in years:
@@ -235,32 +240,31 @@ def generate_master_company_readme(company_name, projects, output_dir, primary_n
     total_commits = sum(p["metrics"]["total_commits"] for p in projects)
     total_merges = sum(p["metrics"]["merges"] for p in projects)
     
-    # CTA: Back to Main Portfolio (Up/Out) - Controlled by flag
     if back_to_url:
-        back_to_portfolio = f"[![ Back to Main Portfolio](https://img.shields.io/badge/👤_Back_to_Main_Portfolio-58a6ff?style=for-the-badge)]({back_to_url})\n\n"
+        back_to_portfolio = f"[![👤 Back to Main Portfolio](https://img.shields.io/badge/👤_Back_to_Main_Portfolio-58a6ff?style=for-the-badge)]({back_to_url})\n\n"
     else:
         back_to_portfolio = ""
 
     with open(readme_path, "w", encoding="utf-8") as f:
         f.write(f"# 🏢 {company_name} - Engineering Impact\n\n")
-        f.write(back_to_portfolio) # Inject the top-level back button if provided
+        f.write(back_to_portfolio) 
         f.write(f"*Author: `{primary_name}` | Period: {global_first.strftime('%Y-%m-%d')} to {global_last.strftime('%Y-%m-%d')}*\n\n")
         f.write("## 📈 Aggregate Summary Statistics\n\n| Metric | Value |\n| :--- | :--- |\n")
         f.write(f"| **Total Projects** | `{len(projects)}` |\n| **Total Commits** | `{total_commits}` |\n")
-        f.write(f"| **Merges / Reviews** | `{total_merges}`  |\n\n")
+        f.write(f"| **Merges / Reviews** | `{total_merges}` 🤝 |\n\n")
         
         f.write("## 🟩 Company-Wide Contribution Graphs\n\n")
         for img, year in heatmap_files: f.write(f"### {year}\n![Graph {year}]({img})\n\n")
         
-        f.write("## 📂 Project Breakdown & Navigation\n\n")
+        f.write("##  Project Breakdown & Navigation\n\n")
         f.write("| Project | Tech Stack | Commits | Merges | Details |\n| :--- | :--- | :--- | :--- | :--- |\n")
         for p in projects:
             m = p["metrics"]
-            # CTA: View Project Summary (Down)
+            # The link now points into the subfolder
             details_link = f"[📄 View Summary]({p['readme_file']})"
             f.write(f"| **{p['name']}** | `{m['primary_tech']}` | {m['total_commits']} | {m['merges']} | {details_link} |\n")
             
-        f.write("\n---\n*Generated by Corporate Contribution Calculator. Raw metadata only. Zero source code included.*")
+        f.write("\n---\n*Generated by Corporate Contribution Creator. Raw metadata only. Zero source code included.*")
     print(f"✅ Master Portfolio generated: {readme_path}")
 
 
@@ -275,10 +279,9 @@ def main():
     parser.add_argument("--author", required=True)
     parser.add_argument("--primary-name", required=True)
     parser.add_argument("--skip-fetch", action="store_true")
-    parser.add_argument("--back-to", default=None, help="URL to link back to from the Company Master (e.g., your main GitHub profile)")
+    parser.add_argument("--back-to", default=None, help="URL to link back to from the Company Master")
     args = parser.parse_args()
     
-    os.makedirs(args.output_dir, exist_ok=True)
     author_filters = [f.strip() for f in args.author.split(',')]
     projects = []
     global_first, global_last = None, None
@@ -304,18 +307,20 @@ def main():
     if not projects:
         print("⚠️ No valid Git repositories with matching commits found."); sys.exit(0)
 
-    # FIX: Calculate the master filename early so we can pass it to the individual generators
+    # Create a dedicated subfolder for this company to prevent overwriting README.md
     safe_company_name = re.sub(r'[^\w\-_.]', '_', args.name)
-    company_master_filename = f"{safe_company_name}_Master_README.md"
+    company_output_dir = os.path.join(args.output_dir, safe_company_name)
+    os.makedirs(company_output_dir, exist_ok=True)
+    print(f"📁 Outputting to dedicated folder: {company_output_dir}")
 
-    # FIX: Generate individual repos FIRST to populate the 'readme_file' key
+    # Generate individual repos (they will create their own subfolders inside company_output_dir)
     print("🔗 Generating individual project summaries...")
     for p in projects:
-        readme_file = generate_individual_repo_readme(p["name"], p["metrics"], args.output_dir, company_master_filename)
+        readme_file = generate_individual_repo_readme(p["name"], p["metrics"], company_output_dir, "README.md")
         p["readme_file"] = readme_file 
 
-    # FIX: Generate the master dashboard LAST
-    generate_master_company_readme(args.name, projects, args.output_dir, args.primary_name, global_first, global_last, args.back_to)
+    # Generate the master dashboard
+    generate_master_company_readme(args.name, projects, company_output_dir, args.primary_name, global_first, global_last, args.back_to)
     
     print("🎉 Hierarchical generation complete!")
 
