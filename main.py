@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Single Project Analyzer: Generates a deep-dive contribution dashboard for one Git repository.
+Hierarchical Portfolio Generator: 
+Generates a Master Company Dashboard that links to individual Repo Dashboards, 
+which in turn link to individual Full Commit Histories.
+Features bi-directional navigation and customizable CTAs.
 """
 
 import subprocess
@@ -18,7 +21,9 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
 
-
+# ==========================================
+# PHASE 1: DATA EXTRACTION
+# ==========================================
 class GitMetricsExtractor:
     def __init__(self, repo_path=".", author_filters=None, fetch_remote=True):
         self.repo_path = repo_path
@@ -31,75 +36,27 @@ class GitMetricsExtractor:
         try:
             result = subprocess.run(["git"] + args, cwd=self.repo_path, capture_output=True, text=True, check=True)
             return result.stdout
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Git error: {e.stderr}", file=sys.stderr)
-            sys.exit(1)
+        except subprocess.CalledProcessError:
+            return "" 
 
     def _fetch_latest(self):
-        """Automatically fetch latest remote data, but fail gracefully if offline."""
-        if not self.fetch_remote:
-            return
-        print("🔄 Fetching latest remote data (git fetch --all)...")
-        try:
-            # --quiet keeps the terminal clean, check=False prevents crashing if offline
+        if not self.fetch_remote: return
+        try: 
             subprocess.run(["git", "fetch", "--all", "--quiet"], cwd=self.repo_path, capture_output=True, text=True, check=False)
-        except Exception:
-            print("⚠️ Fetch failed (offline or no remote). Proceeding with local data.")
-
-    def list_all_authors(self):
-        self._fetch_latest()
-        print("🔍 Scanning repository for all authors...\n")
-        output = self._run_git(["log", "--pretty=format:%an|%ae", "--no-merges", "--all"])
-        author_counts = Counter()
-        for line in output.splitlines():
-            if "|" in line:
-                name, email = line.split("|", 1)
-                author_counts[f"{name} <{email}>"] += 1
-        if not author_counts:
-            print("️ No commits found.")
-            return
-        print(f"📊 Found {len(author_counts)} unique author(s):\n")
-        print(f"{'Author':<55} {'Commits':<10}")
-        print("-" * 65)
-        for author, count in author_counts.most_common():
-            print(f"{author:<55} {count:<10}")
-
-    def extract_all_data(self):
-        self._fetch_latest()
-        print("🔍 Extracting raw commit metadata...")
-        self._extract_commits_and_numstat()
-        print("🧮 Calculating advanced metrics...")
-        return {
-            "summary": self._calc_summary(),
-            "timeline": self._calc_timeline(),
-            "streaks": self._calc_streaks(),
-            "merges": self._calc_merges(),
-            "time_analysis": self._calc_time_analysis(),
-            "packages": self._extract_packages(), 
-            "raw_commits": self.commits,
-            "date_range": self._calc_date_range()
-        }
-
-    def _calc_date_range(self):
-        if not self.commits:
-            return {"first": None, "last": None, "total_days": 0, "years": []}
-        dates = [datetime.strptime(c["date"].split()[0], "%Y-%m-%d") for c in self.commits]
-        first_date, last_date = min(dates), max(dates)
-        return {
-            "first": first_date, "last": last_date,
-            "total_days": (last_date - first_date).days + 1,
-            "years": list(range(first_date.year, last_date.year + 1))
-        }
+        except Exception: 
+            pass
 
     def _is_my_commit(self, author_name, author_email):
         if not self.author_filters: return True
         return any(f in author_name.lower() or f in author_email.lower() for f in self.author_filters)
 
-    def _extract_commits_and_numstat(self):
+    def extract_data(self):
+        self._fetch_latest()
         log_format = "--pretty=format:COMMIT_START|%H|%ai|%an|%ae|%s"
         output = self._run_git(["log", log_format, "--numstat", "--no-merges", "--all"])
-        current_commit = None
+        if not output: return None
 
+        current_commit = None
         for line in output.splitlines():
             line = line.strip()
             if not line: continue
@@ -107,11 +64,7 @@ class GitMetricsExtractor:
                 if current_commit and self._is_my_commit(current_commit["author"], current_commit["email"]):
                     self.commits.append(current_commit)
                 parts = line.split("|", 5)
-                current_commit = {
-                    "hash": parts[1][:8], "date": parts[2], "author": parts[3],
-                    "email": parts[4], "message": parts[5], "files": [],
-                    "insertions": 0, "deletions": 0
-                }
+                current_commit = {"hash": parts[1][:8], "date": parts[2], "author": parts[3], "email": parts[4], "message": parts[5], "insertions": 0, "deletions": 0}
             elif current_commit and "\t" in line:
                 parts = line.split("\t")
                 if len(parts) == 3:
@@ -119,252 +72,252 @@ class GitMetricsExtractor:
                     dels = int(parts[1]) if parts[1] != '-' else 0
                     current_commit["insertions"] += adds
                     current_commit["deletions"] += dels
-                    current_commit["files"].append({"path": parts[2], "adds": adds, "dels": dels})
-                    self.file_stats.append({"path": parts[2], "adds": adds, "dels": dels, "date": current_commit["date"]})
-        
+                    self.file_stats.append({"path": parts[2]})
         if current_commit and self._is_my_commit(current_commit["author"], current_commit["email"]):
             self.commits.append(current_commit)
 
-    def _calc_summary(self):
+        if not self.commits: return None
+
+        dates = [datetime.strptime(c["date"].split()[0], "%Y-%m-%d") for c in self.commits]
         return {
             "total_commits": len(self.commits),
             "total_insertions": sum(c["insertions"] for c in self.commits),
             "total_deletions": sum(c["deletions"] for c in self.commits),
             "net_lines": sum(c["insertions"] for c in self.commits) - sum(c["deletions"] for c in self.commits),
             "total_files_touched": len(set(f["path"] for f in self.file_stats)),
-            "authors": dict(Counter(c["author"] for c in self.commits).most_common())
+            "merges": self._calc_merges(),
+            "first_date": min(dates), "last_date": max(dates),
+            "timeline": Counter(c["date"].split()[0] for c in self.commits),
+            "raw_commits": self.commits,
+            "primary_tech": self._get_primary_tech(),
+            "packages": self._extract_packages()
         }
-
-    def _calc_timeline(self):
-        return dict(Counter(c["date"].split()[0] for c in self.commits))
-
-    def _calc_streaks(self):
-        if not self.commits: return {"current": 0, "longest": 0}
-        dates = sorted(set(c["date"].split()[0] for c in self.commits))
-        dates_dt = [datetime.strptime(d, "%Y-%m-%d") for d in dates]
-        longest, current = 1, 1
-        for i in range(1, len(dates_dt)):
-            if (dates_dt[i] - dates_dt[i-1]).days == 1:
-                current += 1; longest = max(longest, current)
-            else: current = 1
-        if (datetime.now().date() - dates_dt[-1].date()).days > 1: current = 0
-        return {"current": current, "longest": longest}
 
     def _calc_merges(self):
         output = self._run_git(["log", "--merges", "--pretty=format:COMMIT_START|%an|%ae", "--all"])
-        merge_count = 0
-        for line in output.splitlines():
-            if line.startswith("COMMIT_START|"):
-                parts = line.split("|")
-                if len(parts) >= 3 and self._is_my_commit(parts[1], parts[2]):
-                    merge_count += 1
-        return merge_count
+        return sum(1 for line in output.splitlines() if line.startswith("COMMIT_START|") and len(line.split("|")) >= 3 and self._is_my_commit(line.split("|")[1], line.split("|")[2]))
 
-    def _calc_time_analysis(self):
-        day_counts, hour_counts = Counter(), Counter()
-        for c in self.commits:
-            try: dt = datetime.strptime(c["date"], "%Y-%m-%d %H:%M:%S %z")
-            except ValueError: dt = datetime.strptime(c["date"], "%Y-%m-%d %H:%M:%S")
-            day_counts[dt.strftime("%A")] += 1; hour_counts[dt.hour] += 1
-        return {"days_of_week": dict(day_counts), "hours_of_day": dict(hour_counts)}
+    def _get_primary_tech(self):
+        tech = []
+        for root, dirs, files in os.walk(self.repo_path):
+            if '.git' in root or 'node_modules' in root or 'venv' in root: continue
+            if 'package.json' in files:
+                try:
+                    deps = json.load(open(os.path.join(root, 'package.json'), 'r', encoding='utf-8')).get('dependencies', {})
+                    tech.extend([p for p in deps.keys() if any(fw in p.lower() for fw in ['react', 'next', 'vue', 'angular', 'express', 'nestjs', 'tailwind', 'prisma', 'axios'])][:2])
+                except: pass
+            if 'requirements.txt' in files:
+                try:
+                    for line in open(os.path.join(root, 'requirements.txt'), 'r', encoding='utf-8'):
+                        pkg = re.split(r'[=<>!~]', line.strip())[0].strip()
+                        if pkg and any(fw in pkg.lower() for fw in ['django', 'flask', 'fastapi', 'pandas', 'sqlalchemy']): tech.append(pkg)
+                except: pass
+            if any(f.endswith('.csproj') or f.endswith('.sln') for f in files): tech.append('.NET')
+            if any(f == 'go.mod' for f in files): tech.append('Go')
+        return ", ".join(list(dict.fromkeys(tech))[:3]) if tech else "Standard Stack"
 
     def _extract_packages(self):
         packages = set()
         for root, dirs, files in os.walk(self.repo_path):
             if '.git' in root or 'node_modules' in root or 'venv' in root: continue
             if 'package.json' in files:
-                try:
-                    with open(os.path.join(root, 'package.json'), 'r', encoding='utf-8') as f:
-                        deps = json.load(f).get('dependencies', {})
-                        packages.update(deps.keys())
-                except Exception: pass
+                try: packages.update(json.load(open(os.path.join(root, 'package.json'), 'r', encoding='utf-8')).get('dependencies', {}).keys())
+                except: pass
             if 'requirements.txt' in files:
                 try:
-                    with open(os.path.join(root, 'requirements.txt'), 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#') and not line.startswith('-'):
-                                packages.add(re.split(r'[=<>!~]', line)[0].strip())
-                except Exception: pass
+                    for line in open(os.path.join(root, 'requirements.txt'), 'r', encoding='utf-8'):
+                        line = line.strip()
+                        if line and not line.startswith('#') and not line.startswith('-'): packages.add(re.split(r'[=<>!~]', line)[0].strip())
+                except: pass
         return sorted(list(packages))[:15]
 
 
-class MarkdownRenderer:
-    def __init__(self, metrics, repo_name="Project", primary_name=None, output_dir="."):
-        self.metrics = metrics
-        self.repo_name = repo_name
-        self.primary_name = primary_name
-        self.output_dir = output_dir
+# ==========================================
+# PHASE 2: VISUALIZATION & RENDERING
+# ==========================================
+def create_heatmap(timeline, start_date, weeks, output_dir, filename, title):
+    days_to_monday = start_date.weekday()
+    grid_start = start_date - timedelta(days=days_to_monday)
+    data = np.zeros((7, weeks))
+    current = grid_start
+    for week in range(weeks):
+        for day in range(7):
+            data[day, week] = timeline.get(current.strftime("%Y-%m-%d"), 0)
+            current += timedelta(days=1)
 
-    def render(self):
-        md = []
-        md.append(self._render_header())
-        md.append(self._render_summary_table())
-        md.append(self._render_yearly_heatmaps())
-        md.append(self._render_packages())
-        md.append(self._render_time_analysis())
-        md.append(self._render_recent_commits())
-        md.append(self._render_footer())
-        return "\n\n".join(md)
+    fig, ax = plt.subplots(figsize=(15, 3))
+    cmap = mcolors.ListedColormap(["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"])
+    ax.pcolormesh(data, cmap=cmap, norm=mcolors.BoundaryNorm([0, 1, 2, 3, 4, 5], cmap.N), edgecolors='#0d1117', linewidth=0.5)
+    ax.set_yticks([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
+    ax.set_yticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], fontsize=8, color='#8b949e')
+    ax.set_xticks([])
+    ax.set_facecolor('#0d1117'); fig.patch.set_facecolor('#0d1117')
+    for spine in ax.spines.values(): spine.set_visible(False)
+    ax.set_title(title, fontsize=12, color='#c9d1d9', pad=10, fontweight='bold')
+    plt.savefig(os.path.join(output_dir, filename), dpi=150, bbox_inches='tight', facecolor='#0d1117')
+    plt.close()
+    return filename
 
-    def generate_full_history(self, main_readme_filename):
-        commits = self.metrics["raw_commits"]
-        if not commits: return None
-        rows = []
-        for c in commits:
-            date_short = c["date"].split()[0]
-            msg = c["message"].replace("|", "\\|")
-            rows.append(f"| `{c['hash']}` | {date_short} | {msg} | +{c['insertions']} / -{c['deletions']} |")
-        table = "\n".join(rows)
-        back_button = f"[![← Back to Overview Dashboard](https://img.shields.io/badge/←_Back_to_Overview-Dashboard-007bff?style=for-the-badge)]({main_readme_filename})"
-        content = (
-            f"#  Full Commit History: {self.repo_name}\n\n"
-            f"{back_button}\n\n"
-            f"*Total Commits: {len(commits)}*\n\n"
-            "| Hash | Date | Message | LOC Changes |\n"
-            "| :--- | :--- | :--- | :--- |\n"
-            f"{table}\n\n"
-            "---\n*This file contains raw metadata only. No source code is included.*"
-        )
-        filename = "full_commit_history.md"
-        path = os.path.join(self.output_dir, filename)
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f" Generated full history: {path}")
-        return filename
 
-    def _render_header(self):
-        author_info = f" | Author: `{self.primary_name}` (Aggregated aliases)" if self.primary_name else ""
-        history_link = "[![View Full Commit History](https://img.shields.io/badge/View-Full_Commit_History-2ea44f?style=for-the-badge)](full_commit_history.md)"
-        return (
-            f"# 📊 {self.repo_name} - Contribution Metrics\n\n"
-            f"{history_link}\n\n"
-            f"*Auto-generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
-            f"Raw metadata, zero code diffs.{author_info}*"
-        )
+def generate_individual_repo_readme(repo_name, metrics, output_dir, company_master_filename):
+    """Generates the detailed README and Full History for a SINGLE repo."""
+    safe_name = re.sub(r'[^\w\-_.]', '_', repo_name)
+    
+    # 1. Generate Heatmaps
+    years = list(range(metrics["first_date"].year, metrics["last_date"].year + 1))
+    heatmap_files = []
+    for year in years:
+        img_name = f"{safe_name}_{year}.png"
+        create_heatmap(metrics["timeline"], datetime(year, 1, 1), 52, output_dir, img_name, f"Contribution Activity - {year}")
+        heatmap_files.append((img_name, year))
 
-    def _render_summary_table(self):
-        s = self.metrics["summary"]
-        streaks = self.metrics["streaks"]
-        merges = self.metrics.get("merges", 0)
-        return (
-            "## 📈 Summary Statistics\n\n"
-            "| Metric | Value | Metric | Value |\n"
-            "| :--- | :--- | :--- | :--- |\n"
-            f"| **Total Commits** | `{s['total_commits']}` | **Net Lines** | `{s['net_lines']}` |\n"
-            f"| **Lines Added** | `+{s['total_insertions']}` | **Files Touched** | `{s['total_files_touched']}` |\n"
-            f"| **Lines Removed** | `-{s['total_deletions']}` | **Longest Streak** | `{streaks['longest']} days` 🔥 |\n"
-            f"| **Current Streak** | `{streaks['current']} days` | **Unique Aliases** | `{len(s['authors'])}` |\n"
-            f"| **Merges / Reviews** | `{merges}` 🤝 | | |"
-        )
+    # 2. Generate Full Commit History
+    history_filename = f"full_commit_history_{safe_name}.md"
+    history_path = os.path.join(output_dir, history_filename)
+    rows = [f"| `{c['hash']}` | {c['date'].split()[0]} | {c['message'].replace('|', '\\|')} | +{c['insertions']} / -{c['deletions']} |" for c in metrics["raw_commits"]]
+    
+    # CTA: Back to Project Summary
+    back_to_summary = f"[![⬅️ Back to Project Summary](https://img.shields.io/badge/️_Back_to_Project_Summary-007bff?style=for-the-badge)]({safe_name}_README.md)"
+    
+    with open(history_path, "w", encoding="utf-8") as f:
+        f.write(f"# 📜 Full Commit History: {repo_name}\n\n{back_to_summary}\n\n*Total Commits: {len(metrics['raw_commits'])}*\n\n")
+        f.write("| Hash | Date | Message | LOC Changes |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(rows))
+        f.write("\n\n---\n*Raw metadata only. Zero source code included.*")
 
-    def _render_packages(self):
-        packages = self.metrics["packages"]
-        if not packages:
-            return "## 📦 Core Packages & Dependencies\n\n*No package.json or requirements.txt found in this repository.*"
-        pkg_list = "\n".join([f"- `{pkg}`" for pkg in packages])
-        return (
-            "## 📦 Core Packages & Dependencies\n\n"
-            "The following key dependencies were utilized in this project:\n\n"
-            f"{pkg_list}"
-        )
-
-    def _create_single_heatmap(self, timeline, start_date, weeks, year_label):
-        days_to_monday = start_date.weekday()
-        grid_start = start_date - timedelta(days=days_to_monday)
-        data = np.zeros((7, weeks))
-        current = grid_start
-        for week in range(weeks):
-            for day in range(7):
-                data[day, week] = timeline.get(current.strftime("%Y-%m-%d"), 0)
-                current += timedelta(days=1)
-
-        fig, ax = plt.subplots(figsize=(15, 3))
-        colors = ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
-        cmap = mcolors.ListedColormap(colors)
-        norm = mcolors.BoundaryNorm([0, 1, 2, 3, 4, 5], cmap.N)
+    # 3. Generate Individual README
+    readme_path = os.path.join(output_dir, f"{safe_name}_README.md")
+    
+    # CTA: View Full Commit Log (Down) & Back to Company Overview (Up)
+    history_link = f"[![📜 View Full Commit Log](https://img.shields.io/badge/_View_Full_Commit_Log-2ea44f?style=for-the-badge)]({history_filename})"
+    back_to_company = f"[![ Back to Company Overview](https://img.shields.io/badge/_Back_to_Company_Overview-6e7681?style=for-the-badge)]({company_master_filename})"
+    
+    pkg_list = "\n".join([f"- `{p}`" for p in metrics["packages"]]) if metrics["packages"] else "*No major dependencies found.*"
+    
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(f"#  {repo_name} - Contribution Metrics\n\n")
+        f.write(f"{history_link} &nbsp; {back_to_company}\n\n") # Bi-directional navigation
+        f.write(f"*Auto-generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Raw metadata, zero code diffs.*\n\n")
+        f.write("##  Summary Statistics\n\n| Metric | Value | Metric | Value |\n| :--- | :--- | :--- | :--- |\n")
+        f.write(f"| **Total Commits** | `{metrics['total_commits']}` | **Net Lines** | `{metrics['net_lines']}` |\n")
+        f.write(f"| **Lines Added** | `+{metrics['total_insertions']}` | **Files Touched** | `{metrics['total_files_touched']}` |\n") 
+        f.write(f"| **Lines Removed** | `-{metrics['total_deletions']}` | **Longest Streak** | `N/A` |\n") 
+        f.write(f"| **Merges / Reviews** | `{metrics['merges']}` 🤝 | | |\n\n")
         
-        ax.pcolormesh(data, cmap=cmap, norm=norm, edgecolors='#0d1117', linewidth=0.5)
-        ax.set_yticks([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5])
-        ax.set_yticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], fontsize=8, color='#8b949e')
-        ax.set_xticks([])
-        ax.set_facecolor('#0d1117')
-        fig.patch.set_facecolor('#0d1117')
-        for spine in ax.spines.values(): spine.set_visible(False)
-        ax.set_title(f"Contribution Activity - {year_label}", fontsize=12, color='#c9d1d9', pad=10, fontweight='bold')
+        f.write("##  Contribution Graphs\n\n")
+        for img, year in heatmap_files: f.write(f"### {year}\n![Graph {year}]({img})\n\n")
         
-        image_filename = f"{re.sub(r'[^\w\-_.]', '_', self.repo_name)}_{year_label}.png"
-        plt.savefig(os.path.join(self.output_dir, image_filename), dpi=150, bbox_inches='tight', facecolor='#0d1117')
-        plt.close()
-        return image_filename
-
-    def _render_yearly_heatmaps(self):
-        timeline = self.metrics["timeline"]
-        date_range = self.metrics["date_range"]
-        if not date_range["first"]: return "## 🟩 Contribution Graphs\n\n*No data.*"
-        images = []
-        for year in date_range["years"]:
-            images.append(self._create_single_heatmap(timeline, datetime(year, 1, 1), 52, str(year)))
-        print(f"🖼️ Generated {len(images)} yearly graphs")
-        md_parts = ["##  Contribution Graphs\n"]
-        for filename, year in zip(images, date_range["years"]):
-            md_parts.append(f"### {year}\n![Contribution Graph {year}]({filename})\n")
-        return "\n".join(md_parts)
-
-    def _render_time_analysis(self):
-        time_data = self.metrics["time_analysis"]
-        if not time_data["days_of_week"]: return "## 🕒 Time Analysis\n\n*No data.*"
-        peak_day = max(time_data["days_of_week"], key=time_data["days_of_week"].get)
-        peak_hour = max(time_data["hours_of_day"], key=time_data["hours_of_day"].get)
-        max_h = max(time_data["hours_of_day"].values()) or 1
-        chart = "\n".join([f"`{h:02d}:00` {'█' * int((time_data['hours_of_day'].get(h, 0) / max_h) * 20)} ({time_data['hours_of_day'].get(h, 0)})" for h in range(24)])
-        return f"## 🕒 Time Analysis\n\n**Peak Productivity:** {peak_day}s at `{peak_hour:02d}:00`\n\n<details>\n<summary><b>24-Hour Distribution</b></summary>\n\n```text\n{chart}\n```\n</details>"
-
-    def _render_recent_commits(self):
-        commits = self.metrics["raw_commits"][:20]
-        if not commits: return "## 📝 Recent Commits\n\n*None.*"
-        rows = [f"| `{c['hash']}` | {c['date'].split()[0]} | {c['message'].replace('|', '\\|')} | +{c['insertions']}/-{c['deletions']} |" for c in commits]
-        return f"##  Recent Commits (Top 20)\n\n| Hash | Date | Message | LOC |\n|:---|:---|:---|:---|\n" + "\n".join(rows)
-
-    def _render_footer(self):
-        return "---\n*Raw metadata only. **Zero source code included for NDA compliance.***"
+        f.write("##  Core Packages & Dependencies\n\n" + pkg_list + "\n\n")
+        f.write("---\n*Raw metadata only. **Zero source code included for NDA compliance.***")
+    
+    return f"{safe_name}_README.md"
 
 
+def generate_master_company_readme(company_name, projects, output_dir, primary_name, global_first, global_last, back_to_url=None):
+    """Generates the Master Dashboard linking to all individual repos."""
+    safe_name = re.sub(r'[^\w\-_.]', '_', company_name)
+    company_master_filename = f"{safe_name}_Master_README.md"
+    
+    # Aggregate timelines for the master graph
+    combined_timeline = Counter()
+    for p in projects:
+        combined_timeline.update(p["metrics"]["timeline"])
+
+    # 1. Generate Aggregated Heatmaps
+    years = list(range(global_first.year, global_last.year + 1))
+    heatmap_files = []
+    for year in years:
+        img_name = f"{safe_name}_Aggregated_{year}.png"
+        create_heatmap(combined_timeline, datetime(year, 1, 1), 52, output_dir, img_name, f"Company-Wide Activity ({year})")
+        heatmap_files.append((img_name, year))
+
+    # 2. Generate Master README
+    readme_path = os.path.join(output_dir, company_master_filename)
+    total_commits = sum(p["metrics"]["total_commits"] for p in projects)
+    total_merges = sum(p["metrics"]["merges"] for p in projects)
+    
+    # CTA: Back to Main Portfolio (Up/Out) - Controlled by flag
+    if back_to_url:
+        back_to_portfolio = f"[![ Back to Main Portfolio](https://img.shields.io/badge/👤_Back_to_Main_Portfolio-58a6ff?style=for-the-badge)]({back_to_url})\n\n"
+    else:
+        back_to_portfolio = ""
+
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(f"# 🏢 {company_name} - Engineering Impact\n\n")
+        f.write(back_to_portfolio) # Inject the top-level back button if provided
+        f.write(f"*Author: `{primary_name}` | Period: {global_first.strftime('%Y-%m-%d')} to {global_last.strftime('%Y-%m-%d')}*\n\n")
+        f.write("## 📈 Aggregate Summary Statistics\n\n| Metric | Value |\n| :--- | :--- |\n")
+        f.write(f"| **Total Projects** | `{len(projects)}` |\n| **Total Commits** | `{total_commits}` |\n")
+        f.write(f"| **Merges / Reviews** | `{total_merges}`  |\n\n")
+        
+        f.write("## 🟩 Company-Wide Contribution Graphs\n\n")
+        for img, year in heatmap_files: f.write(f"### {year}\n![Graph {year}]({img})\n\n")
+        
+        f.write("## 📂 Project Breakdown & Navigation\n\n")
+        f.write("| Project | Tech Stack | Commits | Merges | Details |\n| :--- | :--- | :--- | :--- | :--- |\n")
+        for p in projects:
+            m = p["metrics"]
+            # CTA: View Project Summary (Down)
+            details_link = f"[📄 View Summary]({p['readme_file']})"
+            f.write(f"| **{p['name']}** | `{m['primary_tech']}` | {m['total_commits']} | {m['merges']} | {details_link} |\n")
+            
+        f.write("\n---\n*Generated by Corporate Contribution Calculator. Raw metadata only. Zero source code included.*")
+    print(f"✅ Master Portfolio generated: {readme_path}")
+
+
+# ==========================================
+# PHASE 3: ORCHESTRATION
+# ==========================================
 def main():
-    parser = argparse.ArgumentParser(description="Generate NDA-safe README.")
-    parser.add_argument("--repo", required=True)
+    parser = argparse.ArgumentParser(description="Generate Hierarchical NDA-safe Portfolio.")
+    parser.add_argument("--parent-dir", required=True)
     parser.add_argument("--output-dir", default="D:\\Personal\\corporate_history")
     parser.add_argument("--name", required=True)
-    parser.add_argument("--author", default=None)
-    parser.add_argument("--primary-name", default=None)
-    parser.add_argument("--list-authors", action="store_true")
-    parser.add_argument("--skip-fetch", action="store_true", help="Skip git fetch --all (useful if offline)")
-    parser.add_argument("--output", default="README.md")
+    parser.add_argument("--author", required=True)
+    parser.add_argument("--primary-name", required=True)
+    parser.add_argument("--skip-fetch", action="store_true")
+    parser.add_argument("--back-to", default=None, help="URL to link back to from the Company Master (e.g., your main GitHub profile)")
     args = parser.parse_args()
+    
     os.makedirs(args.output_dir, exist_ok=True)
+    author_filters = [f.strip() for f in args.author.split(',')]
+    projects = []
+    global_first, global_last = None, None
 
-    extractor = GitMetricsExtractor(
-        repo_path=args.repo, 
-        author_filters=args.author.split(',') if args.author else None,
-        fetch_remote=not args.skip_fetch
-    )
-    
-    if args.list_authors: extractor.list_all_authors(); sys.exit(0)
-    
-    metrics = extractor.extract_all_data()
-    if metrics["summary"]["total_commits"] == 0:
-        print("⚠️ No commits found."); sys.exit(0)
+    print(f"🔍 Recursively scanning {args.parent_dir}...")
+    for root, dirs, files in os.walk(args.parent_dir):
+        if '.git' in dirs:
+            repo_path = root; dirs.remove('.git')
+            project_name = os.path.basename(repo_path)
+            if project_name.lower() in ['src', 'app', 'web', 'api', 'backend', 'frontend']:
+                project_name = os.path.relpath(repo_path, args.parent_dir).replace('\\', '/')
+            
+            print(f"  Processing: {project_name}")
+            extractor = GitMetricsExtractor(repo_path=repo_path, author_filters=author_filters, fetch_remote=not args.skip_fetch)
+            metrics = extractor.extract_data()
+            
+            if metrics:
+                projects.append({"name": project_name, "metrics": metrics})
+                
+                if not global_first or metrics["first_date"] < global_first: global_first = metrics["first_date"]
+                if not global_last or metrics["last_date"] > global_last: global_last = metrics["last_date"]
 
-    renderer = MarkdownRenderer(metrics, repo_name=args.name, primary_name=args.primary_name, output_dir=args.output_dir)
-    safe_name = re.sub(r'[^\w\-_.]', '_', args.name)
-    main_readme_filename = f"{safe_name}_{args.output}"
-    
-    with open(os.path.join(args.output_dir, main_readme_filename), "w", encoding="utf-8") as f:
-        f.write(renderer.render())
-    renderer.generate_full_history(main_readme_filename)
+    if not projects:
+        print("⚠️ No valid Git repositories with matching commits found."); sys.exit(0)
 
-    print(f"✅ Successfully generated files in {args.output_dir}")
-    print(f"📊 Stats: {metrics['summary']['total_commits']} commits, +{metrics['summary']['total_insertions']}/-{metrics['summary']['total_deletions']} lines, {metrics['merges']} merges.")
+    # FIX: Calculate the master filename early so we can pass it to the individual generators
+    safe_company_name = re.sub(r'[^\w\-_.]', '_', args.name)
+    company_master_filename = f"{safe_company_name}_Master_README.md"
+
+    # FIX: Generate individual repos FIRST to populate the 'readme_file' key
+    print("🔗 Generating individual project summaries...")
+    for p in projects:
+        readme_file = generate_individual_repo_readme(p["name"], p["metrics"], args.output_dir, company_master_filename)
+        p["readme_file"] = readme_file 
+
+    # FIX: Generate the master dashboard LAST
+    generate_master_company_readme(args.name, projects, args.output_dir, args.primary_name, global_first, global_last, args.back_to)
+    
+    print("🎉 Hierarchical generation complete!")
 
 if __name__ == "__main__":
     main()
